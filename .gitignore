@@ -1,0 +1,7 @@
+build/
+.vs/
+*.user
+*.VC.db
+.ncu-tmp/
+reports/*.ncu-rep
+reports/*.ncu-repz

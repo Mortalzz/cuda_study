@@ -1,0 +1,14 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: build selected target",
+      "type": "cmake",
+      "command": "build",
+      "preset": "${command:cmake.activeBuildPresetName}",
+      "targets": ["${command:cmake.buildTargetName}"],
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$msCompile"]
+    }
+  ]
+}
