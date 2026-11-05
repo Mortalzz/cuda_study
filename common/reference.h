@@ -36,7 +36,7 @@ bool equal(int *a,int *b,int size){
 bool equal(float *a,float *b,int size){
     bool result = true;
     for(int i=0;i<size;i++){
-        if(fabs(a[i] - b[i]) > 1e-1){
+        if(fabs(a[i] - b[i]) > 1e-3){
             result = false;
             break;
         }
@@ -77,5 +77,24 @@ void softmax_cpu_NHWC(float *b,float *a,int batch,int m,int n,int c){
 void Hillis_Steele_cpu(float *a,float *b,int size){
     for(int i =0 ;i<size;i++){
         b[i] = i==0? 0:a[i-1]+b[i-1];
+    }
+}
+
+void stencil_cpu(float *a,float *b,int m,int n){
+    for(int i=0;i<m;i++){
+        for(int j=0;j<n;j++){
+            float sum =0.0f;
+            int cnt_mn = i*n+j;
+            for(int k=-1;k<=1;k++){
+                for(int l=-1;l<=1;l++){
+                    int x = i+k;
+                    int y = j+l;
+                    if(x>=0 && x<m && y>=0 && y<n){
+                        sum+=a[x*n+y];
+                    }
+                }
+            }
+            b[cnt_mn] = sum/9.0f;
+        }
     }
 }
