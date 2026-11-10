@@ -80,21 +80,18 @@ void Hillis_Steele_cpu(float *a,float *b,int size){
     }
 }
 
-void stencil_cpu(float *a,float *b,int m,int n){
+void stencil_clamp_cpu(float *a,float *b,int m,int n){
     for(int i=0;i<m;i++){
         for(int j=0;j<n;j++){
-            float sum =0.0f;
-            int cnt_mn = i*n+j;
-            for(int k=-1;k<=1;k++){
-                for(int l=-1;l<=1;l++){
-                    int x = i+k;
-                    int y = j+l;
-                    if(x>=0 && x<m && y>=0 && y<n){
-                        sum+=a[x*n+y];
-                    }
-                }
-            }
-            b[cnt_mn] = sum/9.0f;
+            int yt = i>0 ? (i-1):0;
+            int yb = i< (m-1)?(i+1):m-1;
+            int xl = j>0?(j-1):0;
+            int xr = j<(j-1)? (j+1):n-1;
+            b[i*n+j] = 0.5 * a[i * n +j] 
+                    + 0.125 * a[yt * n + j]
+                    + 0.125 * a[yb * n + j]
+                    + 0.125 * a[i * n + xl];
+                    + 0.125 * a[i * n + xr]
         }
     }
 }
