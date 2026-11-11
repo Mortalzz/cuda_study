@@ -86,12 +86,12 @@ void stencil_clamp_cpu(float *a,float *b,int m,int n){
             int yt = i>0 ? (i-1):0;
             int yb = i< (m-1)?(i+1):m-1;
             int xl = j>0?(j-1):0;
-            int xr = j<(j-1)? (j+1):n-1;
+            int xr = j<(n-1)? (j+1):n-1;
             b[i*n+j] = 0.5 * a[i * n +j] 
                     + 0.125 * a[yt * n + j]
                     + 0.125 * a[yb * n + j]
-                    + 0.125 * a[i * n + xl];
-                    + 0.125 * a[i * n + xr]
+                    + 0.125 * a[i * n + xl]
+                    + 0.125 * a[i * n + xr];
         }
     }
 }
