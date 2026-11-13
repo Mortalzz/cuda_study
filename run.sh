@@ -4,4 +4,5 @@ nmake
 #./reduction.exe
 #./transpose.exe
 #./scan_prefix.exe
-./stencil.exe
+#./stencil.exe
+./sgemm.exe
