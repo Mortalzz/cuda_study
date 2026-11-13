@@ -118,7 +118,7 @@ void gemm_shared(int m,int n,int k){
     cudaMemcpy(dev_a,a,sizeof(float) * mk,cudaMemcpyHostToDevice);
     cudaMemcpy(dev_b,b,sizeof(float) * nk,cudaMemcpyHostToDevice);
     dim3 grid = dim3((m + TILE_Y -1)/TILE_Y,(n + TILE_X -1 )/TILE_X);
-    dim3 block - dim3(TILE_Y,TILE_X);
+    dim3 block = dim3(TILE_Y,TILE_X);
     gemm_shared_gpu<<<grid,block>>>(dev_a,dev_b,dev_c,m,n,k);
     cudaMemcpy(c,dev_c,sizeof(float) * mn,cudaMemcpyDeviceToHost);
 
