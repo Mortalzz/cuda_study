@@ -91,6 +91,11 @@ void stencil_clamp(int m,int n){
         }
         std::cout<<std::endl;
     }
+    cudaFree(dev_a);
+    cudaFree(dev_b);
+    cudaFreeHost(a);
+    cudaFreeHost(b);
+    cudaFreeHost(comp);
 }
 
 
