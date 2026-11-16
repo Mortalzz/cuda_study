@@ -11,6 +11,7 @@ struct BenchResult {
     double min_ms;
     double max_ms;
     double gbps;
+    double gflops;
 };
 
 template <typename Launch>
@@ -18,7 +19,8 @@ BenchResult benchmark(const char* name,
                       Launch launch,
                       int warmup,
                       int iters,
-                      double bytes)
+                      double bytes,
+                      double flops = 0.0)
 {
     // 1. 预热：让 GPU 进入稳定频率/功耗状态
     for (int i = 0; i < warmup; ++i) {
@@ -54,10 +56,12 @@ BenchResult benchmark(const char* name,
 
     // bytes / (ms * 1e-3) / 1e9 = GB/s
     double gbps = bytes / (median * 1e-3) / 1e9;
+    double gflops = flops > 0.0 ? flops / (median * 1e-3) / 1e9 : 0.0;
 
     std::printf(
-        "%-18s mean=%8.4f  median=%8.4f  min=%8.4f  max=%8.4f  %8.2f GB/s\n",
-        name, mean, median, min_ms, max_ms, gbps);
+        "%-18s mean=%8.4f median=%8.4f min=%8.4f max=%8.4f "
+        "%8.2f GB/s  %8.2f GFLOP/s\n",
+        name, mean, median, min_ms, max_ms, gbps, gflops);
 
-    return {mean, median, min_ms, max_ms, gbps};
+    return {mean, median, min_ms, max_ms, gbps, gflops};
 }

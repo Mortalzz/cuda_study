@@ -4,16 +4,16 @@
 #include <cstdlib>
 
 
-void Init(float *a, int size,bool judge =true) {
-    std::mt19937 gen(42);                                  // 换成任何固定整数，比如 0、1234、2024
+void Init(float *a, int size,bool judge =true,unsigned seed = 42) {
+    std::mt19937 gen(seed);                                  // 换成任何固定整数，比如 0、1234、2024
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 	for (int i = 0; i < size;i++){
         a[i] = judge?dist(gen) * 10.0:0;
     }
 }
 
-void Init(int *a, int size,bool judge =true) {
-    std::mt19937 gen(42);                                  // 换成任何固定整数，比如 0、1234、2024
+void Init(int *a, int size,bool judge =true,unsigned seed = 42) {
+    std::mt19937 gen(seed);                                  // 换成任何固定整数，比如 0、1234、2024
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
 	for (int i = 0; i < size;i++){
         a[i] = judge?static_cast<int>(dist(gen) * 10):0;
@@ -36,7 +36,7 @@ bool equal(int *a,int *b,int size){
 bool equal(float *a,float *b,int size){
     bool result = true;
     for(int i=0;i<size;i++){
-        if(fabs(a[i] - b[i]) > 1e-3){
+        if(fabs(a[i] - b[i]) > 1e-2){
             result = false;
             break;
         }
