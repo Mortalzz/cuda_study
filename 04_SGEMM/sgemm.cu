@@ -55,6 +55,70 @@ __global__ void gemm_shared_gpu(float *a,float *b,float *c,int m,int n,int k){
     }
 }
 
+
+__device__ void load_a_float4(const float *a,float (*mema)[BK],int row_0,int tid,
+                             int k_start,int m,int k,int nthreads)
+{
+    int total = BM * (BK / 4);
+    for(int idx = tid;idx<total;idx+=nthreads){
+        int r = idx / (BK /4);
+        int c4 = (idx % (BK /4)) * 4;
+        int gr = row_0 + r;
+        int gc = c4 + k_start;
+        float4 v;
+        if(gr < m && gc + 3 <k){
+            v = *reinterpret_cast<const float4*>(&a[gr * k + gc]);
+        }else{
+            v = make_float4(0, 0, 0, 0);    // 整段越界 → 全 0
+        }
+        *reinterpret_cast<float4*>(&mema[r][c4]) = v;
+    }
+}
+
+__device__ void load_a_scalar(const float *a,float (*mema)[BK],int row_0,int tid,
+                             int k_start,int m,int k,int nthreads)
+{
+    for(int idx =tid;idx < BM * BK;idx += nthreads){
+        int r = idx / BK;
+        int c = idx % BK;
+        int gr = r + row_0;
+        int gc = k_start + c;
+        mema[r][c] = (gr< m && gc < k) ? a[gr * k + gc] : 0.0f;
+    }
+}
+
+__device__ void load_b_float4(const float *b,float (*memb)[BN],int col_0,int tid,
+                             int k_start,int k,int n,int nthreads)
+{
+    int total = BK * (BN / 4);
+    for(int idx = tid;idx<total;idx+=nthreads){
+        int r = idx / (BN /4);
+        int c4 = (idx % (BN /4)) * 4;
+        int gr = k_start + r;
+        int gc = c4 + col_0;
+        float4 v;
+        if(gr < k && gc + 3 <n){
+            v = *reinterpret_cast<const float4*>(&b[gr * n + gc]);
+        }else{
+            v = make_float4(0, 0, 0, 0);    // 整段越界 → 全 0
+        }
+        *reinterpret_cast<float4*>(&memb[r][c4]) = v;
+    }
+}
+
+__device__ void load_b_scalar(const float *b,float (*memb)[BN],int col_0,int tid,
+                             int k_start,int k,int n,int nthreads)
+{
+    for(int idx =tid;idx < BK * BN;idx += nthreads){
+        int r = idx / BN;
+        int c = idx % BN;
+        int gr = r + k_start;
+        int gc = col_0 + c;
+        memb[r][c] = (gr< k && gc < n) ? b[gr * n + gc] : 0.0f;
+    }
+}
+
+
 __global__ void gemm_reg_tiling_gpu(float *a,float *b,float *c,int m,int n,int k){
     __shared__ float mema[BM][BK];
     __shared__ float memb[BK][BN];
@@ -62,21 +126,21 @@ __global__ void gemm_reg_tiling_gpu(float *a,float *b,float *c,int m,int n,int k
     int row_0 = blockIdx.y * BM;
     int col_0 = blockIdx.x * BN;
     int tid =threadIdx.y * blockDim.x + threadIdx.x;
+    bool a_aligned = (k % 4 == 0);
+    bool b_aligned = (n % 4 == 0);
     for(int i =0;i<k;i+=BK){
-        for(int j = tid;j<BM * BK;j+=TILE_X *TILE_Y){
-            int r = j/BK;
-            int c = j%BK;
-            int gr = row_0 + r;
-            int gc = c + i;
-            mema[r][c] = (gr< m && gc < k) ? a[gr * k + gc] : 0.0f;
+        if(a_aligned){
+            load_a_float4(a,mema,row_0,tid,i,m,k,TILE_Y *TILE_X);
+        }else{
+            load_a_scalar(a,mema,row_0,tid,i,m,k,TILE_Y *TILE_X);
         }
-        for(int j = tid;j<BK * BN;j+=TILE_X *TILE_Y){
-            int r = j/BN;
-            int c = j%BN;
-            int gr = i + r;
-            int gc = col_0 + c;
-            memb[r][c] = (gr< k && gc < n) ? b[gr * n + gc] : 0.0f;
+
+        if(b_aligned){
+            load_b_float4(b,memb,col_0,tid,i,k,n,TILE_Y *TILE_X);
+        }else{
+            load_b_scalar(b,memb,col_0,tid,i,k,n,TILE_Y *TILE_X);
         }
+
         __syncthreads();
 
         for(int kk=0;kk<BK;kk++){
