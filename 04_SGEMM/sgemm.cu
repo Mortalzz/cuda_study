@@ -7,9 +7,9 @@
 #include<stdio.h>
 #include<iostream>
 
-#define TILE_Y 16
-#define TILE_X 16
-#define TILE_K 16
+#define TILE_Y 32
+#define TILE_X 32
+#define TILE_K 32
 #define REG_TILING 4
 #define BM (TILE_Y * REG_TILING)   // block 覆盖的 C 行数
 #define BN (TILE_X * REG_TILING)   // block 覆盖的 C 列数
@@ -328,7 +328,7 @@ int main(){
     int m = 1024;
     int n =2048;
     int k = 1024;
-    gemm_naive(m,n,k);
-    gemm_shared(m,n,k);
+    //gemm_naive(m,n,k);
+    //gemm_shared(m,n,k);
     gemm_reg_tiling(m,n,k);
 }
