@@ -411,11 +411,62 @@ void gemm_reg_tiling(int m,int n,int k){
     cudaFreeHost(comp);
 }
 
+void gemm_double_buffer(int m,int n,int k){
+    float *a = nullptr;
+    float *b =nullptr;
+    float * c = nullptr;
+    float * comp =nullptr;
+    int mk = m*k;
+    int nk =n*k;
+    int mn =m*n;
+    cudaMallocHost(&a,sizeof(float) * mk);
+    cudaMallocHost(&b,sizeof(float) * nk);
+    cudaMallocHost(&c,sizeof(float) * mn);
+    cudaMallocHost(&comp,sizeof(float) * mn);
+
+    Init(a,mk);
+    Init(b,nk);
+    Init(c,mn,false);
+    Init(comp,mn,false);
+
+    float *dev_a = nullptr;
+    float *dev_b = nullptr;
+    float *dev_c = nullptr;
+    cudaMalloc(&dev_a,sizeof(float) * mk);
+    cudaMalloc(&dev_b,sizeof(float) * nk);
+    cudaMalloc(&dev_c,sizeof(float) * mn);
+    cudaMemcpy(dev_a,a,sizeof(float) * mk,cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_b,b,sizeof(float) * nk,cudaMemcpyHostToDevice);
+    dim3 grid = dim3((n + TILE_X * REG_TILING - 1) / (TILE_X * REG_TILING),  (m + TILE_Y * REG_TILING - 1) / (TILE_Y * REG_TILING)); 
+    dim3 block = dim3(TILE_X,TILE_Y);
+    gemm_double_buffer_gpu<<<grid,block>>>(dev_a,dev_b,dev_c,m,n,k);
+    cudaMemcpy(c,dev_c,sizeof(float) * mn,cudaMemcpyDeviceToHost);
+    gemm_cpu(a,b,comp,m,n,k);
+    if(equal(c,comp,m * n)){
+		std::cout<<"Functional GEMM_DOUBLE_BUFFER Testing PASS!!!"<<std::endl;
+	}else{
+		std::cout<<"Functional GEMM_DOUBLE_BUFFER Testing WRONG!!!"<<std::endl;
+	}
+    auto sgemm_double_buffer = [&] { gemm_reg_tiling_gpu<<<grid,block>>>(dev_a,dev_b,dev_c,m,n,k); };
+    double bytes = (double)(m*k + k*n + m*n) * 4;
+    double flops = 2.0 * m * n * k;
+
+    benchmark("sgemm_double_buffer" ,sgemm_double_buffer,3,10, bytes,flops);
+    cudaFree(dev_a);
+    cudaFree(dev_b);
+    cudaFree(dev_c);
+    cudaFreeHost(a);
+    cudaFreeHost(b);
+    cudaFreeHost(c);
+    cudaFreeHost(comp);
+}
+
 int main(){
     int m = 1024;
     int n =2048;
     int k = 1024;
     //gemm_naive(m,n,k);
     //gemm_shared(m,n,k);
-    gemm_reg_tiling(m,n,k);
+    //gemm_reg_tiling(m,n,k);
+    gemm_double_buffer(m,n,k);
 }
