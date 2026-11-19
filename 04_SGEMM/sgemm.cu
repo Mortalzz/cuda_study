@@ -1,4 +1,5 @@
 #include<cuda_runtime.h>
+#include <cuda_pipeline.h>
 #include<device_launch_parameters.h>
 #include"../common/cuda_check.cuh"
 #include"../common/reference.h"
@@ -176,10 +177,10 @@ __global__ void gemm_reg_tiling_gpu(float *a,float *b,float *c,int m,int n,int k
 
 template<int ROWS,int COLS>
 __device__ __forceinline__ void copy_tile_async(float (*dst)[COLS],float *src,int row_0,int col_0,int rows,int cols,int tid){
-    if(cols % 4 == 0 && (reinterpret_cast<std:uintptr_t>(src) & 15u) ==0){
+    if(cols % 4 == 0 && (reinterpret_cast<std::uintptr_t>(src) & 15u) ==0){
         for(int idx = tid;idx< (ROWS * COLS) /4; idx +=THREADS){
             int r = idx / (COLS / 4);
-            int c = idx % (COLS / 4);
+            int c = idx % (COLS / 4) *4 ;
             int gr = row_0 + r;
             int gc = col_0 + c;
             bool valid = (gr < rows) && (gc + 3< cols);//疑似+3可以删除
@@ -190,8 +191,8 @@ __device__ __forceinline__ void copy_tile_async(float (*dst)[COLS],float *src,in
         for (int idx = tid; idx < ROWS * COLS; idx += THREADS) {
             int r = idx / COLS;
             int c = idx % COLS;
-            int gr = row0 + r;
-            int gc = col0 + c;
+            int gr = row_0 + r;
+            int gc = col_0 + c;
             bool valid = gr < rows && gc < cols;
             const float* p = valid ? src + std::size_t(gr) * cols + gc : src;
             __pipeline_memcpy_async(&dst[r][c], p, 4, valid ? 0 : 4);
@@ -205,8 +206,8 @@ __global__ void gemm_double_buffer_gpu(float *a,float *b,float *c,int m,int n,in
     auto sb = reinterpret_cast<float (*)[BK][BN]>(smem + 2 * BM * BK);
     int tid = threadIdx.y * 32 + threadIdx.x;
     int row0 = blockIdx.y * BM, col0 = blockIdx.x * BN;
-    int row = threadIdx.y * RT, col = threadIdx.x * RT;
-    float acc[RT][RT] = {};
+    int row = threadIdx.y * REG_TILING, col = threadIdx.x * REG_TILING;
+    float acc[REG_TILING][REG_TILING] = {};
     int tiles = k / BK + (k % BK != 0);
 
     if(tiles > 0 ){
@@ -228,7 +229,6 @@ __global__ void gemm_double_buffer_gpu(float *a,float *b,float *c,int m,int n,in
             //计算
             for(int kk=0;kk<BK;kk++){
                 float ar[REG_TILING],br[REG_TILING];
-                float 
                 for(int ii =0;ii<REG_TILING;ii++){
                     ar[ii] = sa[cur][row + ii][kk];
                 }
@@ -252,7 +252,7 @@ __global__ void gemm_double_buffer_gpu(float *a,float *b,float *c,int m,int n,in
             int gr = row0 + row + i;
             int gc = col0 + col + j;
             if(gr < m && gc <n){
-                c[std::size_t(gr) * n + gc] = acc[i][j]
+                c[std::size_t(gr) * n + gc] = acc[i][j];
             }
         }
     }
@@ -439,7 +439,12 @@ void gemm_double_buffer(int m,int n,int k){
     cudaMemcpy(dev_b,b,sizeof(float) * nk,cudaMemcpyHostToDevice);
     dim3 grid = dim3((n + TILE_X * REG_TILING - 1) / (TILE_X * REG_TILING),  (m + TILE_Y * REG_TILING - 1) / (TILE_Y * REG_TILING)); 
     dim3 block = dim3(TILE_X,TILE_Y);
-    gemm_double_buffer_gpu<<<grid,block>>>(dev_a,dev_b,dev_c,m,n,k);
+    cudaFuncSetAttribute(gemm_double_buffer_gpu,
+                     cudaFuncAttributeMaxDynamicSharedMemorySize,
+                     SHARED_BYTES);
+    gemm_double_buffer_gpu<<<grid,block,SHARED_BYTES>>>(dev_a,dev_b,dev_c,m,n,k);
+    CUDA_CHECK(cudaGetLastError());       // 检查启动错误
+    CUDA_CHECK(cudaDeviceSynchronize()); // 调试时定位执行错误
     cudaMemcpy(c,dev_c,sizeof(float) * mn,cudaMemcpyDeviceToHost);
     gemm_cpu(a,b,comp,m,n,k);
     if(equal(c,comp,m * n)){
@@ -447,7 +452,7 @@ void gemm_double_buffer(int m,int n,int k){
 	}else{
 		std::cout<<"Functional GEMM_DOUBLE_BUFFER Testing WRONG!!!"<<std::endl;
 	}
-    auto sgemm_double_buffer = [&] { gemm_reg_tiling_gpu<<<grid,block>>>(dev_a,dev_b,dev_c,m,n,k); };
+    auto sgemm_double_buffer = [&] { gemm_double_buffer_gpu<<<grid,block,SHARED_BYTES>>>(dev_a,dev_b,dev_c,m,n,k); };
     double bytes = (double)(m*k + k*n + m*n) * 4;
     double flops = 2.0 * m * n * k;
 
