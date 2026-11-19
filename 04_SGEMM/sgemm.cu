@@ -15,6 +15,10 @@
 #define BN (TILE_X * REG_TILING)   // block 覆盖的 C 列数
 #define BK TILE_K                  // K 方向 tile
 
+constexpr int THREADS = 1024;
+constexpr int SLOT_FLOATS = BM * BK + BK * BN;
+constexpr int SHARED_BYTES = 2 * SLOT_FLOATS * sizeof(float); // 64 KiB
+
 
 __global__ void gemm_naive_gpu(float *a,float *b,float *c,int m,int n,int k){
     int row_off = blockIdx.y *TILE_Y + threadIdx.y;
@@ -170,6 +174,89 @@ __global__ void gemm_reg_tiling_gpu(float *a,float *b,float *c,int m,int n,int k
     }
 }
 
+template<int ROWS,int COLS>
+__device__ __forceinline__ void copy_tile_async(float (*dst)[COLS],float *src,int row_0,int col_0,int rows,int cols,int tid){
+    if(cols % 4 == 0 && (reinterpret_cast<std:uintptr_t>(src) & 15u) ==0){
+        for(int idx = tid;idx< (ROWS * COLS) /4; idx +=THREADS){
+            int r = idx / (COLS / 4);
+            int c = idx % (COLS / 4);
+            int gr = row_0 + r;
+            int gc = col_0 + c;
+            bool valid = (gr < rows) && (gc + 3< cols);//疑似+3可以删除
+            const float *p = valid ? src + std::size_t(gr) * cols + gc : src;
+            __pipeline_memcpy_async(&dst[r][c],p,16,valid ? 0 : 16);
+        }
+    }else{
+        for (int idx = tid; idx < ROWS * COLS; idx += THREADS) {
+            int r = idx / COLS;
+            int c = idx % COLS;
+            int gr = row0 + r;
+            int gc = col0 + c;
+            bool valid = gr < rows && gc < cols;
+            const float* p = valid ? src + std::size_t(gr) * cols + gc : src;
+            __pipeline_memcpy_async(&dst[r][c], p, 4, valid ? 0 : 4);
+        }
+    }
+}
+
+__global__ void gemm_double_buffer_gpu(float *a,float *b,float *c,int m,int n,int k){
+    extern __shared__ __align__(16) float smem[];
+    auto sa = reinterpret_cast<float (*)[BM][BK]>(smem);
+    auto sb = reinterpret_cast<float (*)[BK][BN]>(smem + 2 * BM * BK);
+    int tid = threadIdx.y * 32 + threadIdx.x;
+    int row0 = blockIdx.y * BM, col0 = blockIdx.x * BN;
+    int row = threadIdx.y * RT, col = threadIdx.x * RT;
+    float acc[RT][RT] = {};
+    int tiles = k / BK + (k % BK != 0);
+
+    if(tiles > 0 ){
+        copy_tile_async<BM,BK>(sa[0],a,row0,0,m,k,tid);
+        copy_tile_async<BK,BN>(sb[0],b,0,col0,k,n,tid);
+        __pipeline_commit();
+        __pipeline_wait_prior(0);
+        __syncthreads();
+
+        for(int tile = 0;tile < tiles;tile++){
+            int cur = tile & 1, next = cur ^ 1;
+            bool has_next = tile + 1 < tiles;
+            if(has_next){
+                int k0 = (tile + 1) * BK;
+                copy_tile_async<BM,BK>(sa[next],a,row0,k0,m,k,tid);
+                copy_tile_async<BK,BN>(sb[next],b,k0,col0,k,n,tid);
+                __pipeline_commit();
+            }
+            //计算
+            for(int kk=0;kk<BK;kk++){
+                float ar[REG_TILING],br[REG_TILING];
+                float 
+                for(int ii =0;ii<REG_TILING;ii++){
+                    ar[ii] = sa[cur][row + ii][kk];
+                }
+                for(int jj =0;jj<REG_TILING;jj++){
+                    br[jj] = sb[cur][kk][col + jj];
+                }
+                for(int ii =0;ii<REG_TILING;ii++){
+                    for(int jj = 0;jj<REG_TILING;jj++){
+                        acc[ii][jj] +=ar[ii] * br[jj];
+                    }
+                }
+            }
+            if(has_next){
+                __pipeline_wait_prior(0);
+                __syncthreads();
+            }
+        }
+    }
+    for(int i =0;i<REG_TILING;i++){
+        for(int j =0;j<REG_TILING;j++){
+            int gr = row0 + row + i;
+            int gc = col0 + col + j;
+            if(gr < m && gc <n){
+                c[std::size_t(gr) * n + gc] = acc[i][j]
+            }
+        }
+    }
+}
 
 void gemm_naive(int m,int n,int k){
     float *a = nullptr;
